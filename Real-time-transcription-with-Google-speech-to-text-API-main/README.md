@@ -46,11 +46,3 @@ The backend listens at [http://localhost:8081](http://localhost:8081/).
 ## Usage
 
 To use the app, simply click the "Start Recording" button and speak into your microphone. The transcription will appear on the screen as you speak, updating in real-time. When you're finished, click the "Stop Recording" button to see the final transcription.
-
-## Credits
-
-This app was built by [Hamza](https://github.com/untilhamza) using the Google Speech-to-Text API.
-
-## License
-
-This project is licensed under the MIT License. See the [LICENSE](https://opensource.org/licenses/MIT) file for more details.
