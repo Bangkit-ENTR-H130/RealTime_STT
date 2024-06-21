@@ -1,149 +1,122 @@
-const express = require("express");
-const speech = require("@google-cloud/speech");
-
-//use logger
-const logger = require("morgan");
-
-//use body parser
-const bodyParser = require("body-parser");
-
-//use corrs
-const cors = require("cors");
-
-const http = require("http");
-const { Server } = require("socket.io");
+const express = require('express');
+const axios = require('axios');
+const { GoogleAuth } = require('google-auth-library');
+const cors = require('cors');
 
 const app = express();
+const port = 8081;
 
-app.use(cors());
-app.use(logger("dev"));
-
-app.use(bodyParser.json());
-
-const server = http.createServer(app);
-
-const io = new Server(server, {
-  cors: {
-    origin: "http://localhost:3000",
+// Middleware untuk parsing JSON body
+app.use(express.json());
+app.use(cors({
+    origin: "*",
     methods: ["GET", "POST"],
+    allowedHeaders: ["Content-Type", "Authorization"],
   },
-});
+));
+let lastReceivedUrl = "";
 
-//TODO: Create this file in the server directory of the project
-process.env.GOOGLE_APPLICATION_CREDENTIALS = "./speech.json";
-
-const speechClient = new speech.SpeechClient();
-
-io.on("connection", (socket) => {
-  let recognizeStream = null;
-  console.log("** a user connected - " + socket.id + " **\n");
-
-  socket.on("disconnect", () => {
-    console.log("** user disconnected ** \n");
-  });
-
-  socket.on("send_message", (message) => {
-    console.log("message: " + message);
-    setTimeout(() => {
-      io.emit("receive_message", "got this message" + message);
-    }, 1000);
-  });
-
-  socket.on("startGoogleCloudStream", function (data) {
-    startRecognitionStream(this, data);
-  });
-
-  socket.on("endGoogleCloudStream", function () {
-    console.log("** ending google cloud stream **\n");
-    stopRecognitionStream();
-  });
-
-  socket.on("send_audio_data", async (audioData) => {
-    io.emit("receive_message", "Got audio data");
-    if (recognizeStream !== null) {
-      try {
-        recognizeStream.write(audioData.audio);
-      } catch (err) {
-        console.log("Error calling google api " + err);
-      }
-    } else {
-      console.log("RecognizeStream is null");
-    }
-  });
-
-  function startRecognitionStream(client) {
-    console.log("* StartRecognitionStream\n");
-    try {
-      recognizeStream = speechClient
-        .streamingRecognize(request)
-        .on("error", console.error)
-        .on("data", (data) => {
-          const result = data.results[0];
-          const isFinal = result.isFinal;
-
-          const transcription = data.results
-            .map((result) => result.alternatives[0].transcript)
-            .join("\n");
-
-          console.log(`Transcription: `, transcription);
-
-          client.emit("receive_audio_text", {
-            text: transcription,
-            isFinal: isFinal,
-          });
-
-          // if end of utterance, let's restart stream
-          // this is a small hack to keep restarting the stream on the server and keep the connection with Google api
-          // Google api disconects the stream every five minutes
-          if (data.results[0] && data.results[0].isFinal) {
-            stopRecognitionStream();
-            startRecognitionStream(client);
-            console.log("restarted stream serverside");
-          }
-        });
-    } catch (err) {
-      console.error("Error streaming google api " + err);
-    }
+app.post("/saveUrl", (req, res) => {
+  const { url } = req.body;
+  if (!url) {
+    return res.status(400).json({ error: 'URL is required' });
   }
 
-  function stopRecognitionStream() {
-    if (recognizeStream) {
-      console.log("* StopRecognitionStream \n");
-      recognizeStream.end();
+  lastReceivedUrl = url;
+  res.status(200).json({ message: 'URL received successfully' });
+});
+
+app.get("/getPublicUrl", async (req, res) => {
+  try {
+    if (!lastReceivedUrl) {
+      return res.status(404).json({ error: "No URL found" });
     }
-    recognizeStream = null;
+    res.status(200).json({ url: lastReceivedUrl });
+  } catch (error) {
+    console.error("Error generating signed URL:", error);
+    res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
-server.listen(8081, () => {
-  console.log("WebSocket server listening on port 8081.");
+app.post('/predict', async (req, res) => {
+  const { jsonUrl } = req.body;
+  if (!jsonUrl) {
+    return res.status(400).json({ error: 'URL to JSON file is required' });
+  }
+
+  try {
+    // Download JSON file
+    const response = await axios.get(jsonUrl);
+    const inputData = response.data;
+
+    // Get access token for authentication
+    const auth = new GoogleAuth({
+      scopes: ['https://www.googleapis.com/auth/cloud-platform'],
+    });
+    const authClient = await auth.getClient();
+    const accessToken = await authClient.getAccessToken();
+
+    // Prepare Vertex AI Prediction request
+    const PROJECT_ID = '744929906379';
+    const ENDPOINT_ID = '2119662705282383872';
+    const LOCATION = 'us-central1';
+    const predictionUrl = `https://${LOCATION}-aiplatform.googleapis.com/v1/projects/${PROJECT_ID}/locations/${LOCATION}/endpoints/${ENDPOINT_ID}:predict`;
+    const headers = {
+      'Authorization': `Bearer ${accessToken.token}`,
+      'Content-Type': 'application/json',
+    };
+
+    // Make prediction request
+    const predictionResponse = await axios.post(predictionUrl, inputData, { headers });
+    res.json(predictionResponse.data);
+  } catch (error) {
+    console.error('Error:', error.response ? error.response.data : error.message);
+    res.status(500).json({ error: error.response ? error.response.data : error.message });
+  }
 });
 
-// =========================== GOOGLE CLOUD SETTINGS ================================ //
+app.post('/predicts', async (req, res) => {
+  const { text } = req.body;
+  if (!text) {
+    return res.status(400).json({ error: 'Text input is required' });
+  }
 
-// The encoding of the audio file, e.g. 'LINEAR16'
-// The sample rate of the audio file in hertz, e.g. 16000
-// The BCP-47 language code to use, e.g. 'en-US'
-const encoding = "LINEAR16";
-const sampleRateHertz = 16000;
-const languageCode = "en-US"; //en-US
-const alternativeLanguageCodes = ["en-US", "ko-KR"];
+  try {
+    // Create input data in required format
+    const inputData = {
+      instances: [
+        {
+          inputs: text
+        }
+      ]
+    };
 
-const request = {
-  config: {
-    encoding: encoding,
-    sampleRateHertz: sampleRateHertz,
-    languageCode: "en-US",
-    //alternativeLanguageCodes: alternativeLanguageCodes,
-    enableWordTimeOffsets: true,
-    enableAutomaticPunctuation: true,
-    enableWordConfidence: true,
-    enableSpeakerDiarization: true,
-    //diarizationSpeakerCount: 2,
-    //model: "video",
-    model: "command_and_search",
-    //model: "default",
-    useEnhanced: true,
-  },
-  interimResults: true,
-};
+    // Get access token for authentication
+    const auth = new GoogleAuth({
+      scopes: ['https://www.googleapis.com/auth/cloud-platform'],
+    });
+    const authClient = await auth.getClient();
+    const accessToken = await authClient.getAccessToken();
+
+    // Prepare Vertex AI Prediction request
+    const PROJECT_ID = '744929906379';
+    const ENDPOINT_ID = '2119662705282383872';
+    const LOCATION = 'us-central1';
+    const predictionUrl = `https://${LOCATION}-aiplatform.googleapis.com/v1/projects/${PROJECT_ID}/locations/${LOCATION}/endpoints/${ENDPOINT_ID}:predict`;
+    const headers = {
+      'Authorization': `Bearer ${accessToken.token}`,
+      'Content-Type': 'application/json',
+    };
+
+    // Make prediction request
+    const predictionResponse = await axios.post(predictionUrl, inputData, { headers });
+    res.json(predictionResponse.data);
+  } catch (error) {
+    console.error('Error:', error.response ? error.response.data : error.message);
+    res.status(500).json({ error: error.response ? error.response.data : error.message });
+  }
+});
+
+app.listen(port, () => {
+  console.log(`Server listening on port ${port}`);
+});
