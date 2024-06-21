@@ -43,6 +43,171 @@ process.env.GOOGLE_APPLICATION_CREDENTIALS = "./speech-to-text-key.json"; //TODO
 
 The backend listens at [http://localhost:8081](http://localhost:8081/).
 
+# How To Use
+
+## Server 1
+
+### URL Route: http://127.0.0.1:8080/
+
+#### [POST] Start Google Cloud Stream
+
+- **Endpoint**: /startGoogleCloudStream
+- **Description**: Starts the Google Cloud Speech-to-Text streaming recognition.
+
+**Request**:
+```json
+{
+  "data": "start"
+}
+```
+
+**Response**:
+```json
+{
+  "status": "Started"
+}
+```
+
+#### [POST] End Google Cloud Stream
+
+- **Endpoint**: /endGoogleCloudStream
+- **Description**: Ends the Google Cloud Speech-to-Text streaming recognition and saves the transcription to Google Cloud Storage.
+
+**Request**:
+```json
+{
+  "data": "end"
+}
+```
+
+**Response**:
+```json
+{
+  "status": "Ended",
+  "message": "Transcription saved",
+  "transcriptionUrl": "https://storage.googleapis.com/naraspeak_bucket1/transcription_123456789.json"
+}
+```
+
+#### [POST] Send Audio Data
+
+- **Endpoint**: /send_audio_data
+- **Description**: Sends audio data to the Google Cloud Speech-to-Text streaming recognition.
+
+**Request**:
+```json
+{
+  "audio": "base64encodedAudioData"
+}
+```
+
+**Response**:
+```json
+{
+  "status": "Received"
+}
+```
+
+## Server 2
+
+### URL Route: http://127.0.0.1:8081/
+
+#### [POST] Save URL
+
+- **Endpoint**: /saveUrl
+- **Description**: Saves the URL of the transcription file sent by Server 1.
+
+**Request**:
+```json
+{
+  "url": "https://storage.googleapis.com/naraspeak_bucket1/transcription_123456789.json"
+}
+```
+
+**Response**:
+```json
+{
+  "status": "Success",
+  "message": "URL received successfully"
+}
+```
+
+#### [GET] Get Public URL
+
+- **Endpoint**: /getPublicUrl
+- **Description**: Retrieves the last received URL.
+
+**Response**:
+```json
+{
+  "status": "Success",
+  "url": "https://storage.googleapis.com/naraspeak_bucket1/transcription_123456789.json"
+}
+```
+
+#### [POST] Predict from URL
+
+- **Endpoint**: /predict
+- **Description**: Sends the JSON file URL to Vertex AI for prediction.
+
+**Request**:
+```json
+{
+  "jsonUrl": "https://storage.googleapis.com/naraspeak_bucket1/transcription_123456789.json"
+}
+```
+
+**Response**:
+```json
+{
+  "status": "Success",
+  "prediction": "Prediction results from Vertex AI"
+}
+```
+
+#### [POST] Predict from Text
+
+- **Endpoint**: /predicts
+- **Description**: Sends text input directly to Vertex AI for prediction.
+
+**Request**:
+```json
+{
+  "text": "sample text to predict"
+}
+```
+
+**Response**:
+```json
+{
+  "status": "Success",
+  "prediction": "Prediction results from Vertex AI"
+}
+```
+
+## Headers
+
+- **Content-Type**: application/json
+- **Authorization**: Bearer [Token]
+
+## Common Responses
+
+- **Success**:
+  ```json
+  {
+    "status": "Success",
+    "message": "Description of the success"
+  }
+  ```
+
+- **Error**:
+  ```json
+  {
+    "status": "Error",
+    "message": "Description of the error"
+  }
+  ```
+
 ## Usage
 
 To use the app, simply click the "Start Recording" button and speak into your microphone. The transcription will appear on the screen as you speak, updating in real-time. When you're finished, click the "Stop Recording" button to see the final transcription.
